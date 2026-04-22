@@ -1,0 +1,5 @@
+Previous bodies of text (if any):
+%s
+
+Current body of text:
+%s

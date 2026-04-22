@@ -1,0 +1,2 @@
+Clinical Summary (generate %s images):
+%s
