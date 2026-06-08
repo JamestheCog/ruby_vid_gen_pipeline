@@ -11,14 +11,15 @@ module Setup
   # This method need only be called once during the application's runtime - before anything else is 
   # done - and all will be well!
   def init_system_db!(file_path = SYSTEM_DB_FILEPATH)
-    # return if File.exist?(file_path)
+    return if File.exist?(file_path)
     begin 
       SQLite3::Database.new(file_path) do |db|
         db.execute(CREATE_TABLE)
         VARS_TO_INSERT.each{|k, v| db.execute(INSERT, [k.to_s, v])}
       end 
+      nil
     rescue StandardError => e 
-      puts "could not initialize system database because #{e}"
+      "could not initialize system database because #{e}"
     end
   end
 
@@ -29,36 +30,34 @@ module Setup
   # 2) api_tokens  --> an Array of Gemini-approved API tokens
   # 3) file_path   --> a String 
   def self.init_rag_db!(system_vars, api_tokens, file_path = RAG_DB_FILEPATH)
-    return if File.exist?(file_path)
     begin 
       err = RAG.init_db!(file_path, RAG_DB_TABLES); raise err unless err.nil?
       RAG_DB_TABLES.each do |table|
         fetched_items = case table 
-                        when 'images'
-                          Reader.image_descs(system_vars['image_prompt_path'])
-                        when 'content'
-                          Reader.sources(system_vars['content_path'])
-                        else
-                          raise "unknown table type found: #{table}."
+                        when 'images' then Reader.image_descs(system_vars['image_prompt_path'])
+                        when 'content' then Reader.sources(system_vars['content_path'])
+                        else raise "unknown table type found: #{table}."
                         end
-        raise fetched_items.last if fetched_items.first.nil?
+        raise fetched_items.last.to_s unless fetched_items.last.nil?
         err = RAG.embed_in_db!(fetched_items.first, table, RAG_DB_FILEPATH, api_tokens)
         raise err unless err.nil?
       end 
+      nil
     rescue StandardError => e 
-      "Failed to initialize the RAG DB because: #{e.message}"
+      "RAG DB init. failed: #{e}"
     end
   end
 
   # Given a file path, and a name that we want all outputs for a clinical note to be under the outputs
   # folder, create a NoSQL database to keep track of pipeline state.
-  def init_state_db!(file_path)
+  def self.init_state_db!(file_path)
     return if File.exist?(file_path)
     begin 
       store = PStore.new(file_path)
       store.transaction do
         store['checkpoints'] = PIPELINE_PHASES.zip(Array.new(PIPELINE_PHASES.length, false)).to_h
       end 
+      nil
     rescue StandardError => e 
       "Could not initialize pipeline state db because #{e.message}"
     end
@@ -102,33 +101,34 @@ module Setup
   # value:
   def self.fetch_files(file_path)
     begin
-      path = file_path.end_with?('/') ? path : "#{file_path}/"
-      to_return = {}
+      path, to_return = file_path.end_with?('/') ? file_path : "#{file_path}/", {}
       Dir.glob("#{path}*").each do |i|
-        to_return[i[0, i.rindex('.') - 1]] = Reader.text(i)
+        txt, err = Reader.text(i); raise err unless err.nil?
+        key = i.split('/').last
+        to_return[key[0, key.rindex('.')]] = txt
       end 
       [to_return, nil]
     rescue StandardError => e 
-      [nil, e.message]
+      [nil, e]
     end
   end  
 
 
   # The different states of our dictionary - also meant to be exportable to the Pipeline module 
   # in this same directory (i.e., defines a hard order for our pipeline to follow):
-  PIPELINE_PHASES = ['sum_gen', 'point_extract', 'image_descs', 'script_gen', 'simplify', 'audio',
+  PIPELINE_PHASES = ['sum_gen', 'image_descs', 'image_fetch', 'script_gen', 'simplify', 'audio',
                     'duration_calc', 'backdrop']
   SETUP_DB_NAME = 'state.pstore'
   
-  VARS_TO_INSERT = {'rag_db': '/db/rag.db', 
-                    'state_db_path': '/db/state.pstore',
+  VARS_TO_INSERT = {'rag_db': 'db/rag.db', 
+                    'state_db_path': 'db/state.pstore',
                     'api_token_path': '', 
-                    'images_path': '/resources/images',
-                    'prompt_folder_path': '/resources/prompts',
-                    'message_folder_path': '/resources/messages',
-                    'image_prompt_path': '/resources/image_prompts.csv',
-                    'content_path': '/resources/med_sources',
-                    'outputs_path': '/output'}
+                    'images_path': 'resources/images',
+                    'prompt_folder_path': 'resources/prompts',
+                    'message_folder_path': 'resources/messages',
+                    'image_prompt_path': 'resources/image_prompts.csv',
+                    'content_path': 'resources/med_sources',
+                    'outputs_path': 'output'}
   EXPLANATIONS = {'rag_db': 'The path to the database containing embedded documents.',
                   'state_db_path': "The path to the system's state database.",
                   'api_token_path': 'The path to a text file containing Gemini API tokens (one token per line).',
