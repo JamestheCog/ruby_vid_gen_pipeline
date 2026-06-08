@@ -11,6 +11,7 @@ Insert the special marker **<BREAK>** into the script exactly where a new image 
 **Rules:**
 - Insert <BREAK> only at natural pauses — typically at the end of a sentence or between logical ideas.
 - Place a <BREAK> before the sentence that the image is meant to support.
+- Do not place a <BREAK> at the very beginning or the very end of the passage.
 - Use each image at the most relevant moment. Do not insert unnecessary breaks.
 - Do not change, reword, or delete any part of the original script.
 - Return the full script exactly as provided, with only the <BREAK> markers added where appropriate.

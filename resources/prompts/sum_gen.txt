@@ -10,11 +10,14 @@ Summarize the note into exactly these four sections:
 - Risks and Benefits of the Planned Surgery
 - Recovery and Follow-Up
 
-**Output Format (strict):**
-Your Diagnosis<sep> [clear summary here]
-Planned Surgery<sep> [clear summary here]
-Risks and Benefits of the Planned Surgery<sep> [clear summary here]
-Recovery and Follow-Up<sep> [clear summary here]
+**Output Format (follow this format):**
+
+"""
+your_diagnosis<sep> [clear summary here]
+planned_surgery<sep> [clear summary here]
+risks_and_benefits<sep> [clear summary here]
+recovery<sep> [clear summary here]
+"""
 
 **Strict Rules:**
 - Use only information present in the clinical note. Do not add, invent, or assume any details.
