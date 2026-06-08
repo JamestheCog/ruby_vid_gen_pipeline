@@ -2,12 +2,14 @@ require 'ratatui_ruby'
 
 require_relative 'processes/setup'
 require_relative 'processes/rag'
+require_relative 'processes/pipeline'
 
 # Ratatui components:
 require_relative 'ratatui/home'
 require_relative 'ratatui/controls'
 require_relative 'ratatui/system_vars'
 require_relative 'ratatui/rag_config'
+require_relative 'ratatui/pipeline'
 
 class MainApp
   include Setup
@@ -15,6 +17,7 @@ class MainApp
   include Controls 
   include SystemComponents
   include RAGComponents
+  include PipelineComponents
 
   def initialize
     init_system_db!
@@ -25,6 +28,7 @@ class MainApp
 
     initialize_system_components
     initialize_rag_components
+    initialize_pipeline_components
   end
 
   def run
@@ -33,8 +37,9 @@ class MainApp
         event = tui.poll_event(timeout: 0.1) 
         system_handled = @system_editing ? handle_system_form_event(event) : false
         rag_handled = @rag_editing ? handle_rag_form_event(event) : false
+        pipeline_handled = @pipeline_editing ? handle_pipeline_form_event(event) : false
         
-        unless system_handled || rag_handled
+        unless system_handled || rag_handled || pipeline_handled
           case event
           in { type: :key, code: code } if %w[q Q].include?(code)
             break
@@ -45,6 +50,9 @@ class MainApp
             when 2 
               next unless @rag_setup_error.nil?
               @rag_editing = true 
+            when 3 
+              next unless @pipeline_setup_error.nil?
+              @pipeline_editing = true
             end
           in { type: :key, code: c } if %w{down tab}.include?(c.to_s.downcase)
             @chosen_index = (@chosen_index + 1) % @items.length
@@ -116,19 +124,17 @@ class MainApp
         )
       end 
     when 2
-      unless @rag_setup_error.nil? && !@rag_components.nil?
-        sys_vars, err = Setup::fetch_sys_vars
-        sys_vars = sys_vars.slice('rag_db', 'image_prompt_path', 'content_path', 'api_token_path')
-        if err.nil?
-          sys_vars.each do |k, v|
-            err = "Key `#{k}` has no value" if v.strip.empty?
-            break unless err.nil?
-          end
-          err = "expecting four variables in system DB; only had #{sys_vars.size}." if sys_vars.size != RAG_EXP_AMTS
+      sys_vars, err = Setup::fetch_sys_vars
+      sys_vars = sys_vars.slice('rag_db', 'image_prompt_path', 'content_path', 'api_token_path')
+      if err.nil?
+        sys_vars.each do |k, v|
+          err = "Key `#{k}` has no value" if v.strip.empty?
+          break unless err.nil?
         end
-        @rag_setup_error = err
-        @rag_components = sys_vars if @rag_components.nil?
+        err = "expecting four variables in system DB; only had #{sys_vars.size}." if sys_vars.size != RAG_EXP_AMTS
       end
+      @rag_setup_error = err
+      @rag_components = sys_vars if !@rag_editing
       
       if @rag_editing && @rag_setup_error.nil?
         render_rag_form(frame, tui, content_area)
@@ -145,7 +151,34 @@ class MainApp
         )
       end 
     when 3
+      unless @pipeline_setup_error.nil? && !@pipeline_components.nil?
+        err = RAGProcesses::validate_rag_db
+        sys_vars, err = Setup::fetch_sys_vars
+        sys_vars = sys_vars.slice('rag_db', 'image_prompt_path', 'content_path', 'api_token_path')
+        if err.nil?
+          sys_vars.each do |k, v|
+            err = "Key `#{k}` has no value" if v.strip.empty?
+            break unless err.nil?
+          end
+        end
+        @pipeline_setup_error = err
+        @pipeline_components = sys_vars if !@pipeline_editing
+      end
       
+      if @pipeline_editing && @pipeline_setup_error.nil?
+        render_pipeline_form(frame, tui, content_area)
+      else
+        msg = err.nil? ? "Press 'Enter' to begin running the pipeline" : "Cannot run pipeline yet because #{err}"
+        frame.render_widget(
+          tui.paragraph(
+            text: "\n\n\n\n\nPipeline\n\n" + msg,
+            alignment: :center,
+            block: tui.block(title: " Pipeline Execution ", borders: :all, padding: 6),
+            style: tui.style(modifiers: [:bold], fg: err.nil? ? :gray : :red)
+          ),
+          content_area
+        )
+      end 
     end 
   end
 
