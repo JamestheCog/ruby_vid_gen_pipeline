@@ -1,1 +1,21 @@
 unused
+
+# Any other files:
+*.mp3
+
+# User-specific files:
+resources/med_sources
+resources/api_tokens.txt
+resources/image_prompts.csv
+resources/images
+resources/*.docx
+
+# Databases:
+db/*.pstore
+db/*.db
+
+# Testing files:
+test*.rb
+
+# Outputs:
+output
