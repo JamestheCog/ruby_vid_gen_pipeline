@@ -11,14 +11,13 @@ module RAG
   # a new SQLite vector database with the HEREDOC string in the method body.
   #
   # Caution: this function will overwrite old databases if `db_path` already exists!
-  def self.init_db!(db_path = Setup::RAG_DB_FILEPATH, db_table_names = Setup::RAG_DB_TABLES)
-    return if File.exist(db_path)
-    
+  def self.init_db!(db_path = Setup::RAG_DB_FILEPATH, db_table_names = Setup::RAG_DB_TABLES)    
     begin   
       SQLite3::Database.new(db_path) do |db|
-        db.load_extension(true)
-        SqliteVec.load()
-        db.load_extension(false)
+        db.enable_load_extension(true)
+        SqliteVec.load(db)
+        db.enable_load_extension(false)
+
         db_table_names.each do |table|
           db.execute <<-COMMAND
             CREATE VIRTUAL TABLE IF NOT EXISTS #{table} USING vec0 (
@@ -28,8 +27,9 @@ module RAG
           COMMAND
         end
       end 
+      nil
     rescue StandardError => e 
-      "could not make the database because #{e.message}"
+      e
     end
   end 
 
@@ -46,24 +46,27 @@ module RAG
   #      
   # 1) `key`     -> the content to be returned during distance calculation
   # 2) `content` -> the content to be embedded.
-  def self.embed_in_db!(content, db_table_name, db_path, api_tokens)
+  def self.embed_in_db!(contents, db_table_name, db_path, api_tokens)
     begin 
-      raise 'no content to embed.' if content.empty?
+      raise 'no content to embed.' if contents.empty?
       raise 'no API tokens to work with.' if api_tokens.empty?
       raise "`#{db_path}` does not exist." if !File.exist?(db_path)
       
       SQLite3::Database.open(db_path) do |db|
-        db.load_extension(true)
-        SqliteVec.load()
-        db.load_extension(false)
-
-        content.each do |i|
-          res = Gemini.generate_embedding(i['content'], EMBED_SIZE, api_tokens)
-          raise res.last if !res.last.nil?
-          db.execute("INSERT INTO #{db_table_name}(embedding, content) VALUES (?, ?)",
-                    [res[0].pack('f*'), i['key']])
+        db.enable_load_extension(true)
+        SqliteVec.load(db)
+        db.enable_load_extension(false)
+        
+        db.transaction do
+          contents.each do |i|
+            embedding, err = Gemini.generate_embedding(i[:content], EMBED_SIZE, api_tokens) 
+            raise err unless err.nil?
+            db.execute("INSERT INTO #{db_table_name}(embedding, content) VALUES (?, ?)",
+                      [embedding.pack('f*'), i[:key]])
+          end
         end 
       end 
+      nil
     rescue StandardError => e 
       e
     end
@@ -74,59 +77,62 @@ module RAG
   # Given the content to match, the database path, and the table name to fetch files from,
   # return the 'n' closest matches in the said database table.
   #
-  # -- NOTE (Saturday, 11th April, 2026) --
+  # NOTE (Saturday, 11th April, 2026) --
   # This function will expect a dictionary in the case of image searching.
+  #
+  # NOTE (Monday, 4th May, 2026) --
+  # I've decided that this method's gonna return a list for the results if all goes according to plan.  
   def self.find_closest_match(item, db_path, db_table_name, api_tokens, n = 1)
     begin 
-      raise "`#{db_path}` does not exist" if File.exist?(db_path)
+      raise "`#{db_path}` does not exist" unless File.exist?(db_path)
       embedding = err = nil
-      if item.is_a?(Enumerable)
-        embedding, err = Gemini.generate_embedding(item['content'], EMBED_SIZE, api_tokens)
+      if item.is_a?(Hash)
+        embedding, err = Gemini.generate_embedding(item[:desc], EMBED_SIZE, api_tokens)
       else 
         embedding, err = Gemini.generate_embedding(item, EMBED_SIZE, api_tokens)
       end
-      raise err if !err.nil?
+      raise err unless err.nil?
+      embedding = embedding.pack('f*')
 
       SQLite3::Database.open(db_path) do |db|
-        db.load_extension(true)
-        SqliteVec.load()
-        db.load_extension(false)
+        db.enable_load_extension(true)
+        SqliteVec.load(db)
+        db.enable_load_extension(false)
         
         query_vals, query = nil, nil
         case db_table_name 
         when 'content'
-          query = CONTENT_QUERY
-          query_vals = [embedding]
+          query, query_vals = CONTENT_QUERY, [embedding, n]
         when 'images'
-          query = IMAGE_QUERY
-          query_vals = [embedding, item.last.end_with?('%') ? item.last : item.last + '%']
+          query, query_vals = IMAGE_QUERY, [embedding, n * CANDIDATE_BUFFER]
         else 
           raise 'unknown table found.'
         end 
-        query = "#{query.strip} LIMIT #{n};"
-        res = db.execute(query, query_vals)
-        [res.map{|x| x[0]}, nil]
+        res = db.execute(query.strip, query_vals)
+        res = db_table_name == 'images' ? res.filter{|x| x.first.start_with?(item[:topic_mapping])} : res
+        to_return = [res.map{|x| x[0]}.first(n), nil]
+        db_table_name == 'images' ? to_return : to_return.flatten
       end 
     rescue StandardError => e
-      [nil, "couldn't find closest match because #{e}"]
+      [nil, e]
     end
   end 
 
-  TOPIC_MAPPINGS = {'Your Diagnosis': 'topic_1', 'Planned Surgery': 'topic_2',
-                    'Risks and Benefits of the Planned Surgery': 'topic_3',
-                    'Recovery and Follow-Up': 'topic_4'}
+  TOPIC_MAPPINGS = {'your_diagnosis': 'topic_1', 'planned_surgery': 'topic_2',
+                    'risks_and_benefits': 'topic_3',
+                    'recovery': 'topic_4'}
   private 
+  CANDIDATE_BUFFER = 20
   EMBED_SIZE = 784
-  CONTENT_QUERY = <<-QUERY
-    SELECT content, distance 
-    FROM content
-    WHERE embedding MATCH ? 
-    ORDER BY distance
-  QUERY
-  IMAGE_QUERY = <<-QUERY
-    SELECT content, distance 
-    FROM images
-    WHERE embedding MATCH ? AND content LIKE ?
-    ORDER BY distance
-  QUERY
+  MAX_SEARCH_SIZE = 4096
+  CONTENT_QUERY = <<-SQL
+    SELECT content 
+    FROM content 
+    WHERE embedding MATCH ? and k = ?
+  SQL
+  IMAGE_QUERY = <<-SQL
+    SELECT content 
+    FROM images 
+    WHERE embedding MATCH ? AND k = ?
+  SQL
 end 

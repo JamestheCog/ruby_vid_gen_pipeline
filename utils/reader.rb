@@ -10,32 +10,21 @@ module Reader
       end
       [to_return, nil]
     rescue StandardError => e
-      [nil, e.message]
+      [nil, e]
     end
   end
 
   def self.sources(source_path)
     begin 
       to_return = []
-      path = source_path.end_with?('/') ? "#{source_path}/" : source_path
+      path = source_path.end_with?('/') ? source_path : "#{source_path}/"
       Dir.glob("#{path}*").each do |x|
-        content = text(x)
-        to_return << {'key': x, 'content': content}
+        content = text(x); raise content.last unless content.last.nil?
+        to_return << {'key': x, 'content': content.first}
       end 
       [to_return, nil]
     rescue StandardError => e 
-      [nil, e.message]
-    end
-  end
-  
-  def self.api_tokens(api_token_path)
-    begin
-      tokens, err = text(api_token_path)
-      raise err unless err.nil?
-      tokens = tokens.split('\n').map(&strip).select{|x| x.length > 0}
-      [tokens, nil]
-    rescue StandardError => e 
-      [nil, e.message]
+      [nil, e]
     end
   end
 
@@ -45,16 +34,13 @@ module Reader
     begin
       extension = item_path[item_path.rindex('.'), item_path.length]
       content = case extension
-                when '.docx'
-                  Docx::Document.open(item_path).text
-                when '.txt'
-                  File.read(item_path)
-                else
-                  raise 'unknown extension for `item_path`; please check file.'
+                when '.docx' then Docx::Document.open(item_path).text
+                when '.txt' then File.read(item_path)
+                else raise 'unknown extension for `item_path`; please check file.'
                 end
       [content, nil]
     rescue StandardError => e 
-      [nil, e.message]
+      [nil, e]
     end
   end
 end
