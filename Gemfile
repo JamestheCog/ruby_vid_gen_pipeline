@@ -16,3 +16,7 @@ gem "wahwah", "~> 1.6"
 gem "textstat", "~> 1.0"
 
 gem "docx", "~> 0.10.0"
+
+gem "sqlite3", "~> 2.9"
+
+gem 'sqlite-vec', '0.1.9', platforms: [:x64_mingw]
