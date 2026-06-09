@@ -38,7 +38,7 @@ Before you create your first video, ensure that you have the following items in 
 4. **`image_prompts.csv`**: a `.csv` file created by Kevin to describe each image in `images`.  These descriptions will also be embedded in the RAG
 vector database.
 
-### ▶️ Running the Ratatui Application
+### 🐀 Running the Ratatui Application
 
 This project also leans on a RatatuiRuby (i.e., the Ruby port of the Rust-based TUI library [i.e., crate] Ratatui) interface for a UI.  Granted, you 
 can also choose to write your own `.rb` files, `require_relative` the necessary helper methods and constants, and go from there - but run the following 

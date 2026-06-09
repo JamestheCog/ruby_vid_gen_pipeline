@@ -96,7 +96,7 @@ module Pipeline
 
     to_stitch = TOPIC_ORDER.map{|x| [transitions[x.intern], backdrops[x.gsub('_overlayed', '').intern]]}.flatten
 
-    input_flags, filter_nodes = to_stitch.map{|x| "-i \"#{x}\""}.join(" "), []
+    input_flags, filter_nodes = to_stitch.map{|x| "-thread_queue_size 1024 -i \"#{x}\""}.join(" "), []
 
     to_stitch.each_with_index do |clip, i|
       if clip.include?("transition")
@@ -113,8 +113,7 @@ module Pipeline
     # We swapped libx264 for h264_nvenc and added the queue size limit
     cmd = "ffmpeg #{input_flags} -filter_complex \"#{filter_nodes.join('')}\" " \
           "-map \"[outv]\" -map \"[outa]\" " \
-          "-c:v h264_nvenc -preset medium -pix_fmt yuv420p " \
-          "-c:a aac -max_muxing_queue_size 4096 -y \"#{final_name}\""
+          "-c:v libx264 -preset fast -threads 4 -pix_fmt yuv420p -c:a aac -y \"#{final_name}\""
     system(cmd)
     nil
   end
